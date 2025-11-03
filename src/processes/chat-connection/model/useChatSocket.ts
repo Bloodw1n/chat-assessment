@@ -32,7 +32,16 @@ export const useChatSocket = (url?: string) => {
     socket?.close()
   })
 
+  const send = (payload: unknown) => {
+    if (!socket) {
+      return false
+    }
+
+    return socket.send(payload)
+  }
+
   return {
     status: readonly(status),
+    send,
   }
 }
