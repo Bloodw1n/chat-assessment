@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted, readonly, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, readonly, ref } from 'vue'
 import { useChatStore } from '@/entities/chat'
 import { ReconnectingWebSocket } from '@/shared/api/ws'
 import type { WebSocketStatus } from '@/shared/api/ws'
@@ -11,6 +11,7 @@ export const useChatSocket = (url?: string) => {
   let socket: ReconnectingWebSocket | null = null
   let detachMessage: (() => void) | undefined
   let detachStatus: (() => void) | undefined
+  const isConnected = computed(() => status.value === 'open')
 
   onMounted(() => {
     socket = new ReconnectingWebSocket(url ?? DEFAULT_WS_URL)
@@ -32,7 +33,27 @@ export const useChatSocket = (url?: string) => {
     socket?.close()
   })
 
+  const send = (payload: unknown) => {
+    if (!socket) {
+      return false
+    }
+
+    return socket.send(payload)
+  }
+
+  const reconnect = () => {
+    if (!socket) {
+      return false
+    }
+
+    socket.connect()
+    return true
+  }
+
   return {
     status: readonly(status),
+    send,
+    isConnected,
+    reconnect,
   }
 }
