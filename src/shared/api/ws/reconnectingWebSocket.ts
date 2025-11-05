@@ -8,6 +8,7 @@ export type ReconnectingWebSocketOptions = {
   maxReconnectInterval?: number;
   multiplier?: number;
   maxQueueLength?: number;
+  jitter?: number;
 };
 
 const isIncomingMessage = (data: unknown): data is IncomingSocketMessage => {
@@ -55,11 +56,19 @@ export class ReconnectingWebSocket {
       maxReconnectInterval: options.maxReconnectInterval ?? 10000,
       multiplier: options.multiplier ?? 1.6,
       maxQueueLength: options.maxQueueLength ?? 50,
+      jitter: Math.min(Math.max(options.jitter ?? 0, 0), 1),
     };
   }
 
   connect() {
     if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -131,6 +140,10 @@ export class ReconnectingWebSocket {
   }
 
   private setStatus(status: WebSocketStatus) {
+    if (this.status === status) {
+      return;
+    }
+
     this.status = status;
     this.statusListeners.forEach((listener) => listener(status));
   }
@@ -143,10 +156,11 @@ export class ReconnectingWebSocket {
     const attempt = this.reconnectAttempts + 1;
     this.reconnectAttempts = attempt;
 
-    const delay = Math.min(
-      this.options.reconnectInterval * Math.pow(this.options.multiplier, attempt - 1),
-      this.options.maxReconnectInterval
-    );
+    const baseDelay =
+      this.options.reconnectInterval * Math.pow(this.options.multiplier, attempt - 1);
+    const jitterOffset =
+      this.options.jitter > 0 ? baseDelay * Math.random() * this.options.jitter : 0;
+    const delay = Math.min(baseDelay + jitterOffset, this.options.maxReconnectInterval);
 
     this.clearTimer();
 
@@ -169,8 +183,10 @@ export class ReconnectingWebSocket {
       return false;
     }
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(message);
+    const socket = this.ws;
+
+    if (socket && socket.readyState === socket.OPEN) {
+      socket.send(message);
       return true;
     }
 
