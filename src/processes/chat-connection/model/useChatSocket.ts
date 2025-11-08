@@ -8,6 +8,7 @@ const DEFAULT_WS_URL = 'ws://localhost:8181'
 export const useChatSocket = (url?: string) => {
   const store = useChatStore()
   const status = ref<WebSocketStatus>('idle')
+  const lastMessage = ref<{ from: string; text: string } | null>(null)
   let socket: ReconnectingWebSocket | null = null
   let detachMessage: (() => void) | undefined
   let detachStatus: (() => void) | undefined
@@ -17,7 +18,9 @@ export const useChatSocket = (url?: string) => {
     socket = new ReconnectingWebSocket(url ?? DEFAULT_WS_URL)
 
     detachMessage = socket.onMessage(({ message }) => {
-      store.handleIncoming({ from: message.from, text: message.message })
+      const normalized = { from: message.from, text: message.message }
+      lastMessage.value = normalized
+      store.handleIncoming(normalized)
     })
 
     detachStatus = socket.onStatusChange((nextStatus) => {
@@ -50,10 +53,14 @@ export const useChatSocket = (url?: string) => {
     return true
   }
 
+  const getSocketMeta = () => socket?.getMetaSnapshot() ?? null
+
   return {
     status: readonly(status),
     send,
     isConnected,
     reconnect,
+    lastMessage: readonly(lastMessage),
+    getSocketMeta,
   }
 }

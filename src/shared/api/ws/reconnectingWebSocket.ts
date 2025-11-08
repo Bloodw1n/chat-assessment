@@ -40,6 +40,7 @@ export class ReconnectingWebSocket {
   private readonly statusListeners: Set<StatusListener>;
   private readonly options: Required<ReconnectingWebSocketOptions>;
   private readonly pendingMessages: string[];
+  private lastActivityAt: number | null;
 
   constructor(url: string, options: ReconnectingWebSocketOptions = {}) {
     this.url = url;
@@ -51,6 +52,7 @@ export class ReconnectingWebSocket {
     this.messageListeners = new Set<MessageListener>();
     this.statusListeners = new Set<StatusListener>();
     this.pendingMessages = [];
+    this.lastActivityAt = null;
     this.options = {
       reconnectInterval: options.reconnectInterval ?? 1000,
       maxReconnectInterval: options.maxReconnectInterval ?? 10000,
@@ -80,6 +82,7 @@ export class ReconnectingWebSocket {
 
     this.ws.addEventListener('open', () => {
       this.reconnectAttempts = 0;
+      this.lastActivityAt = Date.now();
       this.setStatus('open');
       this.flushPendingMessages();
     });
@@ -89,6 +92,7 @@ export class ReconnectingWebSocket {
         return;
       }
 
+      this.lastActivityAt = Date.now();
       try {
         const parsed = JSON.parse(event.data);
 
@@ -102,12 +106,14 @@ export class ReconnectingWebSocket {
 
     this.ws.addEventListener('close', () => {
       this.ws = null;
+      this.lastActivityAt = Date.now();
       this.setStatus('closed');
       this.scheduleReconnect();
     });
 
     this.ws.addEventListener('error', () => {
       this.ws = null;
+      this.lastActivityAt = Date.now();
       this.setStatus('error');
       this.scheduleReconnect();
     });
@@ -187,6 +193,7 @@ export class ReconnectingWebSocket {
 
     if (socket && socket.readyState === socket.OPEN) {
       socket.send(message);
+      this.lastActivityAt = Date.now();
       return true;
     }
 
@@ -212,8 +219,23 @@ export class ReconnectingWebSocket {
 
       if (next !== undefined) {
         this.ws.send(next);
+        this.lastActivityAt = Date.now();
       }
     }
+  }
+
+  getMetaSnapshot(): {
+    status: WebSocketStatus;
+    reconnectAttempts: number;
+    queueLength: number;
+    lastActivityAt: number | null;
+  } {
+    return {
+      status: this.status,
+      reconnectAttempts: this.reconnectAttempts,
+      queueLength: this.pendingMessages.length,
+      lastActivityAt: this.lastActivityAt,
+    };
   }
 
   private serializePayload(payload: unknown): string | null {
