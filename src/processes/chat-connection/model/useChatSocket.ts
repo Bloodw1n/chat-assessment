@@ -14,46 +14,64 @@ export const useChatSocket = (url?: string) => {
   let detachStatus: (() => void) | undefined
   const isConnected = computed(() => status.value === 'open')
 
-  onMounted(() => {
-    socket = new ReconnectingWebSocket(url ?? DEFAULT_WS_URL)
+  const cleanupListeners = () => {
+    detachMessage?.()
+    detachStatus?.()
+    detachMessage = undefined
+    detachStatus = undefined
+  }
 
-    detachMessage = socket.onMessage(({ message }) => {
+  const closeSocket = () => {
+    cleanupListeners()
+    socket?.close()
+    socket = null
+  }
+
+  const connectSocket = () => {
+    closeSocket()
+
+    const nextSocket = new ReconnectingWebSocket(url ?? DEFAULT_WS_URL)
+    socket = nextSocket
+
+    detachMessage = nextSocket.onMessage(({ message }) => {
       const normalized = { from: message.from, text: message.message }
       lastMessage.value = normalized
       store.handleIncoming(normalized)
     })
 
-    detachStatus = socket.onStatusChange((nextStatus) => {
+    detachStatus = nextSocket.onStatusChange((nextStatus) => {
       status.value = nextStatus
     })
 
-    socket.connect()
+    nextSocket.connect()
+  }
+
+  const withSocket = <T>(handler: (activeSocket: ReconnectingWebSocket) => T, fallback: T) => {
+    if (!socket) {
+      return fallback
+    }
+
+    return handler(socket)
+  }
+
+  onMounted(() => {
+    connectSocket()
   })
 
   onBeforeUnmount(() => {
-    detachMessage?.()
-    detachStatus?.()
-    socket?.close()
+    closeSocket()
   })
 
-  const send = (payload: unknown) => {
-    if (!socket) {
-      return false
-    }
+  const send = (payload: unknown) => withSocket((activeSocket) => activeSocket.send(payload), false)
 
-    return socket.send(payload)
-  }
+  const reconnect = () =>
+    withSocket((activeSocket) => {
+      activeSocket.connect()
+      return true
+    }, false)
 
-  const reconnect = () => {
-    if (!socket) {
-      return false
-    }
-
-    socket.connect()
-    return true
-  }
-
-  const getSocketMeta = () => socket?.getMetaSnapshot() ?? null
+  const getSocketMeta = () =>
+    withSocket((activeSocket) => activeSocket.getMetaSnapshot(), null)
 
   return {
     status: readonly(status),

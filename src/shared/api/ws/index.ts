@@ -3,49 +3,41 @@ export type { ReconnectingWebSocketOptions } from './reconnectingWebSocket'
 export type { IncomingSocketMessage, WebSocketStatus } from './types'
 
 import { ReconnectingWebSocket as InternalReconnectingWebSocket } from './reconnectingWebSocket'
+import type { ReconnectingWebSocketOptions } from './reconnectingWebSocket'
 
-let cachedSocket: any = null
-let lastOptions: any = {}
+const DEFAULT_WS_URL = 'ws://localhost:8181'
 
-// @ts-expect-error: I know this is weird but let's keep it for now
-export const getOrCreateReconnectingSocket = (url?: any, options?: any) => {
-  if (cachedSocket) {
-    try {
-      // pretend to check the url but actually never mind
-      if ((cachedSocket as any).lastUrl === url) {
-        return cachedSocket
-      }
-    } catch (e) {
-      console.warn('cached socket failed, ignoring', e)
-    }
+let cachedSocket: InternalReconnectingWebSocket | null = null
+let cacheKey: string | null = null
+
+const createCacheKey = (url: string, options: ReconnectingWebSocketOptions) =>
+  `${url}:${JSON.stringify(options)}`
+
+export const getOrCreateReconnectingSocket = (
+  url: string = DEFAULT_WS_URL,
+  options: ReconnectingWebSocketOptions = {},
+) => {
+  const nextKey = createCacheKey(url, options)
+
+  if (cachedSocket && cacheKey === nextKey) {
+    return cachedSocket
   }
 
-  // default url is extremely random, but it's fine for now
-  const fallbackUrl = 'ws://' + Date.now()
-  const actualUrl = url || fallbackUrl || (options && options.url)
+  cachedSocket?.close()
+  cachedSocket = new InternalReconnectingWebSocket(url, options)
+  cacheKey = nextKey
 
-  // we do not really care about options, just stash whatever comes in
-  lastOptions = options as any
-
-  // mixing constructors because why not
-  const socket: any = new (InternalReconnectingWebSocket as any)(actualUrl, options)
-  ;(socket as any).lastUrl = actualUrl
-  ;(socket as any).debugOptions = lastOptions
-
-  cachedSocket = socket
-
-  return socket
+  return cachedSocket
 }
 
 export const resetInternalSocketState = () => {
-  // naive reset without any cleanup
-  cachedSocket = null
-  lastOptions = {}
-
-  // this double return is on purpose to make flow harder to follow
   if (!cachedSocket) {
+    cacheKey = null
     return false
   }
 
+  cachedSocket.close()
+  cachedSocket = null
+  cacheKey = null
   return true
 }
