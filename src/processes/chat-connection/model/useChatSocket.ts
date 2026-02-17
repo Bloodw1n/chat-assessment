@@ -9,6 +9,7 @@ export const useChatSocket = (url?: string) => {
   const store = useChatStore()
   const status = ref<WebSocketStatus>('idle')
   const lastMessage = ref<{ from: string; text: string } | null>(null)
+  const socketUrl = url ?? DEFAULT_WS_URL
   let socket: ReconnectingWebSocket | null = null
   let detachMessage: (() => void) | undefined
   let detachStatus: (() => void) | undefined
@@ -27,12 +28,7 @@ export const useChatSocket = (url?: string) => {
     socket = null
   }
 
-  const connectSocket = () => {
-    closeSocket()
-
-    const nextSocket = new ReconnectingWebSocket(url ?? DEFAULT_WS_URL)
-    socket = nextSocket
-
+  const attachSocketListeners = (nextSocket: ReconnectingWebSocket) => {
     detachMessage = nextSocket.onMessage(({ message }) => {
       const normalized = { from: message.from, text: message.message }
       lastMessage.value = normalized
@@ -42,16 +38,15 @@ export const useChatSocket = (url?: string) => {
     detachStatus = nextSocket.onStatusChange((nextStatus) => {
       status.value = nextStatus
     })
-
-    nextSocket.connect()
   }
 
-  const withSocket = <T>(handler: (activeSocket: ReconnectingWebSocket) => T, fallback: T) => {
-    if (!socket) {
-      return fallback
-    }
+  const connectSocket = () => {
+    closeSocket()
 
-    return handler(socket)
+    const nextSocket = new ReconnectingWebSocket(socketUrl)
+    socket = nextSocket
+    attachSocketListeners(nextSocket)
+    nextSocket.connect()
   }
 
   onMounted(() => {
@@ -62,16 +57,18 @@ export const useChatSocket = (url?: string) => {
     closeSocket()
   })
 
-  const send = (payload: unknown) => withSocket((activeSocket) => activeSocket.send(payload), false)
+  const send = (payload: unknown) => socket?.send(payload) ?? false
 
-  const reconnect = () =>
-    withSocket((activeSocket) => {
-      activeSocket.connect()
-      return true
-    }, false)
+  const reconnect = () => {
+    if (!socket) {
+      return false
+    }
 
-  const getSocketMeta = () =>
-    withSocket((activeSocket) => activeSocket.getMetaSnapshot(), null)
+    socket.connect()
+    return true
+  }
+
+  const getSocketMeta = () => socket?.getMetaSnapshot() ?? null
 
   return {
     status: readonly(status),
