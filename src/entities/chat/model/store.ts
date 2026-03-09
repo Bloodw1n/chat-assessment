@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { ChatMessage, Contact } from './types'
+import type { ChatMessage, ChatMessageDirection, Contact } from './types'
 
 interface IncomingPayload {
   from: string
@@ -11,6 +11,19 @@ const createMessageId = () => `${Date.now()}-${Math.random().toString(16).slice(
 
 const sortContacts = (items: Contact[]) =>
   [...items].sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp)
+
+const createChatMessage = (
+  contactId: string,
+  direction: ChatMessageDirection,
+  text: string,
+  timestamp: number,
+): ChatMessage => ({
+  id: createMessageId(),
+  contactId,
+  direction,
+  text,
+  timestamp,
+})
 
 export const useChatStore = defineStore('chat', () => {
   const contacts = ref<Contact[]>([])
@@ -69,6 +82,20 @@ export const useChatStore = defineStore('chat', () => {
     contacts.value = sortContacts(updated)
   }
 
+  const setLastMessageMeta = (
+    contactId: string,
+    text: string,
+    timestamp: number,
+    unreadCountUpdater: (currentUnread: number) => number,
+  ) => {
+    updateContactMeta(contactId, (current) => ({
+      ...current,
+      lastMessagePreview: text,
+      lastMessageTimestamp: timestamp,
+      unreadCount: unreadCountUpdater(current.unreadCount),
+    }))
+  }
+
   const markAsRead = (contactId: string) => {
     updateContactMeta(contactId, (contact) => ({
       ...contact,
@@ -80,25 +107,13 @@ export const useChatStore = defineStore('chat', () => {
     const contact = upsertContact(from)
     const timestamp = Date.now()
 
-    const message: ChatMessage = {
-      id: createMessageId(),
-      contactId: contact.id,
-      direction: 'incoming',
-      text,
-      timestamp,
-    }
+    const message = createChatMessage(contact.id, 'incoming', text, timestamp)
 
     appendMessage(message)
 
-    updateContactMeta(contact.id, (current) => ({
-      ...current,
-      lastMessagePreview: text,
-      lastMessageTimestamp: timestamp,
-      unreadCount:
-        activeContactId.value && activeContactId.value === contact.id
-          ? 0
-          : current.unreadCount + 1,
-    }))
+    setLastMessageMeta(contact.id, text, timestamp, (currentUnread) =>
+      activeContactId.value === contact.id ? 0 : currentUnread + 1,
+    )
   }
 
   const sendLocalMessage = (text: string) => {
@@ -108,21 +123,11 @@ export const useChatStore = defineStore('chat', () => {
 
     const timestamp = Date.now()
 
-    const message: ChatMessage = {
-      id: createMessageId(),
-      contactId: activeContactId.value,
-      direction: 'outgoing',
-      text,
-      timestamp,
-    }
+    const message = createChatMessage(activeContactId.value, 'outgoing', text, timestamp)
 
     appendMessage(message)
 
-    updateContactMeta(message.contactId, (current) => ({
-      ...current,
-      lastMessagePreview: text,
-      lastMessageTimestamp: timestamp,
-    }))
+    setLastMessageMeta(message.contactId, text, timestamp, (currentUnread) => currentUnread)
   }
 
   const setActiveContact = (contactId: string | null) => {
