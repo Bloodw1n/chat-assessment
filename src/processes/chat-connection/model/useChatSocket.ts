@@ -3,13 +3,34 @@ import { useChatStore } from '@/entities/chat'
 import { ReconnectingWebSocket } from '@/shared/api/ws'
 import type { WebSocketStatus } from '@/shared/api/ws'
 
-const DEFAULT_WS_URL = 'ws://localhost:8181'
+const LOCAL_SOCKET_PORT = '8181'
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'])
+
+const resolveSocketUrl = (url?: string) => {
+  if (url) {
+    return url
+  }
+
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const { hostname, host, protocol } = window.location
+  const isLocalhost = LOCAL_HOSTNAMES.has(hostname)
+  const socketProtocol = isLocalhost
+    ? protocol === 'https:'
+      ? 'wss:'
+      : 'ws:'
+    : 'wss:'
+  const socketHost = isLocalhost ? `${hostname}:${LOCAL_SOCKET_PORT}` : host
+
+  return `${socketProtocol}//${socketHost}`
+}
 
 export const useChatSocket = (url?: string) => {
   const store = useChatStore()
   const status = ref<WebSocketStatus>('idle')
   const lastMessage = ref<{ from: string; text: string } | null>(null)
-  const socketUrl = url ?? DEFAULT_WS_URL
   let socket: ReconnectingWebSocket | null = null
   let detachMessage: (() => void) | undefined
   let detachStatus: (() => void) | undefined
@@ -41,6 +62,13 @@ export const useChatSocket = (url?: string) => {
   }
 
   const connectSocket = () => {
+    const socketUrl = resolveSocketUrl(url)
+
+    if (!socketUrl) {
+      status.value = 'error'
+      return
+    }
+
     closeSocket()
 
     const nextSocket = new ReconnectingWebSocket(socketUrl)

@@ -5,39 +5,66 @@ export type { IncomingSocketMessage, WebSocketStatus } from './types'
 import { ReconnectingWebSocket as InternalReconnectingWebSocket } from './reconnectingWebSocket'
 import type { ReconnectingWebSocketOptions } from './reconnectingWebSocket'
 
-const DEFAULT_WS_URL = 'ws://localhost:8181'
+type ReconnectingSocketScopeKey = string
 
-let cachedSocket: InternalReconnectingWebSocket | null = null
-let cacheKey: string | null = null
+const socketCache = new Map<string, InternalReconnectingWebSocket>()
 
-const createCacheKey = (url: string, options: ReconnectingWebSocketOptions) =>
-  `${url}:${JSON.stringify(options)}`
+const createCacheKey = (
+  scopeKey: ReconnectingSocketScopeKey,
+  url: string,
+  options: ReconnectingWebSocketOptions,
+) => `${scopeKey}:${url}:${JSON.stringify(options)}`
+
+const resetSocketScope = (scopeKey: ReconnectingSocketScopeKey) => {
+  const scopePrefix = `${scopeKey}:`
+  let removed = false
+
+  socketCache.forEach((socket, key) => {
+    if (!key.startsWith(scopePrefix)) {
+      return
+    }
+
+    socket.close()
+    socketCache.delete(key)
+    removed = true
+  })
+
+  return removed
+}
 
 export const getOrCreateReconnectingSocket = (
-  url: string = DEFAULT_WS_URL,
+  url: string,
+  scopeKey: ReconnectingSocketScopeKey,
   options: ReconnectingWebSocketOptions = {},
 ) => {
-  const nextKey = createCacheKey(url, options)
+  const nextKey = createCacheKey(scopeKey, url, options)
+  const cachedSocket = socketCache.get(nextKey)
 
-  if (cachedSocket && cacheKey === nextKey) {
+  if (cachedSocket) {
     return cachedSocket
   }
 
-  cachedSocket?.close()
-  cachedSocket = new InternalReconnectingWebSocket(url, options)
-  cacheKey = nextKey
+  resetSocketScope(scopeKey)
 
-  return cachedSocket
+  const nextSocket = new InternalReconnectingWebSocket(url, options)
+  socketCache.set(nextKey, nextSocket)
+
+  return nextSocket
 }
 
-export const resetInternalSocketState = () => {
-  if (!cachedSocket) {
-    cacheKey = null
+export const resetInternalSocketState = (scopeKey?: ReconnectingSocketScopeKey) => {
+  if (scopeKey) {
+    return resetSocketScope(scopeKey)
+  }
+
+  if (socketCache.size === 0) {
     return false
   }
 
-  cachedSocket.close()
-  cachedSocket = null
-  cacheKey = null
+  socketCache.forEach((socket) => {
+    socket.close()
+  })
+  socketCache.clear()
+
   return true
 }
